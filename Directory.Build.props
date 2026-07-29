@@ -1,0 +1,32 @@
+<Project>
+    <PropertyGroup>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <Authors>NiTiSon and contributors</Authors>
+        <Description>Pawchive API wrapper.</Description>
+        <TargetFrameworks>net10.0;net6.0</TargetFrameworks>
+        <LangVersion>14.0</LangVersion>
+
+        <ImplicitUsings>disable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        
+        <PublishRepositoryUrl>true</PublishRepositoryUrl>
+        <VersionPrefix>1.0</VersionPrefix> <!-- library version -->
+        <VersionMeta>pawchive.1.0</VersionMeta> <!-- site api version -->
+        <Version>$(VersionPrefix)+$(VersionMeta)</Version>
+
+        <DebugType>portable</DebugType>
+        <EmbedAllSources>true</EmbedAllSources>
+        <EmbedUntrackedSources>true</EmbedUntrackedSources>
+        <IncludeSymbols>true</IncludeSymbols>
+    </PropertyGroup>
+
+    <PropertyGroup Label="AOT" Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net8.0'))">
+        <IsAotCompatible>true</IsAotCompatible>
+        <EnableAotAnalyzer>true</EnableAotAnalyzer>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="DotNet.ReproducibleBuilds" Version="2.0.5" PrivateAssets="All"/>
+        <PackageReference Include="DotNet.ReproducibleBuilds.Isolated" Version="2.0.5" PrivateAssets="All"/>
+    </ItemGroup>
+</Project>

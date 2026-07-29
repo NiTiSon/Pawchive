@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/Root/">
+    <File Path=".editorconfig" />
+    <File Path=".gitignore" />
+    <File Path="Directory.Build.props" />
+  </Folder>
+  <Project Path="Pawchive/Pawchive.csproj" />
+  <Project Path="Pawchive.Tests/Pawchive.Tests.csproj" />
+</Solution>
