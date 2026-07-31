@@ -4,9 +4,10 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <IsPackable>false</IsPackable>
+        <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
     </PropertyGroup>
     <ItemGroup>
-        <PackageReference Include="TUnit" Version="0.*" />
+        <PackageReference Include="TUnit" Version="1.*" />
     </ItemGroup>
     <ItemGroup>
         <ProjectReference Include="..\Pawchive\Pawchive.csproj" />

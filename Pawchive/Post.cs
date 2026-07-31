@@ -1,16 +1,16 @@
 using System.Threading.Tasks;
+using Pawchive.Models;
 
 namespace Pawchive;
 
 public class Post
 {
-	public Creator Creator { get; }
+	private readonly PawchiveClient _client;
+	private readonly PostModel _model;
 
-	private readonly Models.PostModel _model;
-
-	internal Post(Creator creator, Models.PostModel model)
+	internal Post(PawchiveClient client, PostModel model)
 	{
-		Creator = creator;
+		_client = client;
 		_model = model;
 	}
 
@@ -25,7 +25,7 @@ public class Post
 			return Task.FromResult<Post?>(null);
 		}
 
-		return Creator.GetPostByIdAsync(_model.Next);
+		return _client.GetPostByIdAsync(_model.Service, _model.User, _model.Next);
 	}
 
 	public Task<Post?> GetPreviousPostAsync()
@@ -35,6 +35,6 @@ public class Post
 			return Task.FromResult<Post?>(null);
 		}
 
-		return Creator.GetPostByIdAsync(_model.Prev);
+		return _client.GetPostByIdAsync(_model.Service, _model.User, _model.Prev);
 	}
 }

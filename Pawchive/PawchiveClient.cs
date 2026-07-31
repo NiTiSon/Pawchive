@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Net.Http;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using Pawchive.Models;
 
@@ -13,8 +14,6 @@ public sealed class PawchiveClient
 	private const string PawchiveUrl = "https://pawchive.pw";
 
 	private readonly HttpClient _http;
-	[DebuggerBrowsable(DebuggerBrowsableState.Never)]
-	private string? _sessionCookie;
 
 	public PawchiveClient(HttpClient http)
 	{
@@ -31,39 +30,142 @@ public sealed class PawchiveClient
 	{
 	}
 
-	public void SetSessionCookie(string? cookie) => _sessionCookie = cookie;
-
-	public Task<string> Version => GetVersionAsync();
-
-	private async Task<string> GetVersionAsync()
+	public void Auth(string token)
 	{
-		var res = await _http.GetAsync("/api/v1/app_version");
+		ArgumentNullException.ThrowIfNull(token);
+
+		_http.DefaultRequestHeaders.Add("Cookie", $"session={token}");
+	}
+
+	public void Logout()
+	{
+		_http.DefaultRequestHeaders.Remove("Cookie");
+	}
+
+	public async Task<string> GetVersionAsync(CancellationToken cancellationToken = default)
+	{
+		var res = await _http.GetAsync("/api/v1/app_version", cancellationToken);
 		res.EnsureSuccessStatusCode();
 
-		return await res.Content.ReadAsStringAsync();
+		return await res.Content.ReadAsStringAsync(cancellationToken);
+	}
+
+	/// <summary>
+	/// Gets all creators.
+	/// </summary>
+	/// <param name="cancellationToken">Cancellation token.</param>
+	/// <returns>A huge array of all ever existed creators.</returns>
+	public async Task<Creator[]> GetCreatorsAsync(CancellationToken cancellationToken = default)
+	{
+		CreatorModel[] models = await GetJson<CreatorModel[]>($"/api/v1/creators", cancellationToken);
+
+		Creator[] creators = new Creator[models.Length];
+		for (int i = 0; i < models.Length; i++)
+		{
+			creators[i] = new Creator(this, models[i]);
+		}
+
+		return creators;
+	}
+
+	public Task<Creator?> GetCreatorByIdAsync(Service service, int id, CancellationToken cancellationToken = default)
+		=> GetCreatorByIdAsync(service, id.ToString(), cancellationToken);
+
+	public async Task<Creator?> GetCreatorByIdAsync(Service service, string id, CancellationToken cancellationToken = default)
+	{
+		CreatorModel? model = await GetJson<CreatorModel?>($"/api/v1/{service}/user/{id}/profile", cancellationToken);
+
+		if (model is null)
+		{
+			return null;
+		}
+
+		return new Creator(this, model);
+	}
+
+	public async Task<Post?> GetPostByIdAsync(Service service, string creatorId, string postId)
+	{
+		PostModel? model = await GetJson<PostModel?>($"/api/v1/{service}/user/{creatorId}/post/{postId}");
+
+		if (model is null)
+		{
+			return null;
+		}
+
+		return new Post(this, model);
+	}
+
+	public async Task<Post[]> GetRecentPosts(int page = 0)
+	{
+		if (page < 0)
+		{
+			throw new ArgumentOutOfRangeException(nameof(page));
+		}
+
+		PostModel[] models = await GetJson<PostModel[]>($"/api/v1/posts?o={page * 50}");
+
+		if (models.Length == 0)
+		{
+			return [];
+		}
+
+		Post[] result = new Post[models.Length];
+		for (int i = 0; i < models.Length; i++)
+		{
+			result[i] = new Post(this, models[i]);
+		}
+		return result;
+	}
+
+	public async Task<Post[]> SearchPosts(string query, int page = 0)
+	{
+		if (page < 0)
+		{
+			throw new ArgumentOutOfRangeException(nameof(page));
+		}
+
+		PostModel[] models = await GetJson<PostModel[]>($"/api/v1/posts?q={query}&o={page * 50}");
+
+		if (models.Length == 0)
+		{
+			return [];
+		}
+
+		Post[] result = new Post[models.Length];
+		for (int i = 0; i < models.Length; i++)
+		{
+			result[i] = new Post(this, models[i]);
+		}
+		return result;
 	}
 
 	[UnconditionalSuppressMessage("ReflectionAnalysis", "IL2026:RequiresUnreferencedCode", Justification = nameof(PawchiveJsonSerializationContext))]
 	[UnconditionalSuppressMessage("ReflectionAnalysis", "IL3050:RequiresDynamicCodeAttribute", Justification = nameof(PawchiveJsonSerializationContext))]
-	internal async Task<T> GetJson<T>(string path, bool auth = false)
+	internal async Task<T> GetJson<T>(string path, CancellationToken cancellationToken = default)
 	{
-		HttpResponseMessage res;
-		if (auth)
-		{
-			HttpRequestMessage req = new(HttpMethod.Get, path);
-			if (_sessionCookie is not null)
-			{
-				req.Headers.Add("Cookie", _sessionCookie);
-			}
-
-			res = await _http.SendAsync(req);
-		}
-		else
-		{
-			res = await _http.GetAsync(path);
-		}
+		HttpResponseMessage res = await _http.GetAsync(path, cancellationToken);
 
 		res.EnsureSuccessStatusCode();
-		return JsonSerializer.Deserialize<T>(await res.Content.ReadAsStringAsync(), PawchiveJsonSerializationContext.Default.Options)!;
+		return JsonSerializer.Deserialize<T>(await res.Content.ReadAsStringAsync(cancellationToken), PawchiveJsonSerializationContext.Default.Options)!;
+	}
+
+	[UnconditionalSuppressMessage("ReflectionAnalysis", "IL2026:RequiresUnreferencedCode", Justification = nameof(PawchiveJsonSerializationContext))]
+	[UnconditionalSuppressMessage("ReflectionAnalysis", "IL3050:RequiresDynamicCodeAttribute", Justification = nameof(PawchiveJsonSerializationContext))]
+	internal async Task<T> PostJson<T>(string path, CancellationToken cancellationToken = default)
+	{
+		HttpResponseMessage res = await _http.PostAsync(path, null, cancellationToken);
+
+		res.EnsureSuccessStatusCode();
+		return JsonSerializer.Deserialize<T>(await res.Content.ReadAsStringAsync(cancellationToken), PawchiveJsonSerializationContext.Default.Options)!;
+	}
+
+	[UnconditionalSuppressMessage("ReflectionAnalysis", "IL2026:RequiresUnreferencedCode", Justification = nameof(PawchiveJsonSerializationContext))]
+	[UnconditionalSuppressMessage("ReflectionAnalysis", "IL3050:RequiresDynamicCodeAttribute", Justification = nameof(PawchiveJsonSerializationContext))]
+	internal async Task<T> DeleteJson<T>(string path, CancellationToken cancellationToken = default)
+	{
+		HttpResponseMessage res = await _http.DeleteAsync(path, cancellationToken);
+
+		res.EnsureSuccessStatusCode();
+		return JsonSerializer.Deserialize<T>(await res.Content.ReadAsStringAsync(cancellationToken), PawchiveJsonSerializationContext.Default.Options)!;
 	}
 }

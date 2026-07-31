@@ -7,4 +7,6 @@ public readonly record struct Service(string Name)
 
 	public static implicit operator string(Service service) => service.Name;
 	public static implicit operator Service(string name) => new(name);
+
+	public override string ToString() => Name;
 }
