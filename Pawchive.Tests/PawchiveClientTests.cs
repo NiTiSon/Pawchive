@@ -46,7 +46,7 @@ public sealed class PawchiveClientTests
 		const string query = "ananas";
 		PawchiveClient client = new();
 
-		Post[] posts = await client.SearchPosts(query, 1);
+		Post[] posts = await client.SearchPosts(query);
 
 		await Assert.That(posts).IsNotEmpty().And.Contains(x => x.Title.Contains(query));
 	}

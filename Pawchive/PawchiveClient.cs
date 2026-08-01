@@ -9,9 +9,11 @@ using Pawchive.Models;
 
 namespace Pawchive;
 
-public sealed class PawchiveClient
+public sealed class PawchiveClient : IDisposable
 {
 	private const string PawchiveUrl = "https://pawchive.pw";
+	internal const string PawchiveDataUrl = "https://file.pawchive.pw";
+	internal const string DataUrlPrefix = "/data/";
 
 	private readonly HttpClient _http;
 
@@ -28,6 +30,11 @@ public sealed class PawchiveClient
 	public PawchiveClient()
 		: this(new HttpClient { BaseAddress = new Uri(PawchiveUrl) })
 	{
+	}
+
+	public void Dispose()
+	{
+		_http.Dispose();
 	}
 
 	public void Auth(string token)
@@ -67,9 +74,6 @@ public sealed class PawchiveClient
 
 		return creators;
 	}
-
-	public Task<Creator?> GetCreatorByIdAsync(Service service, int id, CancellationToken cancellationToken = default)
-		=> GetCreatorByIdAsync(service, id.ToString(), cancellationToken);
 
 	public async Task<Creator?> GetCreatorByIdAsync(Service service, string id, CancellationToken cancellationToken = default)
 	{
