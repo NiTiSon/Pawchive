@@ -1,7 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Net;
 using System.Net.Http;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,6 +15,7 @@ namespace Pawchive;
 public sealed class PawchiveClient : IDisposable
 {
 	private const string PawchiveUrl = "https://pawchive.pw";
+	private const int PageSize = 50;
 	internal const string PawchiveDataUrl = "https://file.pawchive.pw";
 	internal const string DataUrlPrefix = "/data/";
 
@@ -263,11 +267,87 @@ public sealed class PawchiveClient : IDisposable
 		}
 	}
 
+	/// <summary>Lazily walks every page of posts, yielding each post as it arrives.</summary>
+	/// <param name="startPage">Zero-based page index to start from.</param>
+	/// <param name="query">Optional search term, matching <see cref="SearchPosts"/>.</param>
+	/// <param name="cancellationToken">Cancellation token.</param>
+	/// <remarks>
+	/// Enumeration stops when a page comes back shorter than <see cref="PageSize"/>, or when the API
+	/// rejects an offset past its cap (~50k posts) with a 400. A 400 on the first page is a real error.
+	/// </remarks>
+	public IAsyncEnumerable<Post> EnumeratePostsAsync(int startPage = 0, string? query = null, CancellationToken cancellationToken = default)
+	{
+		if (startPage < 0)
+		{
+			throw new ArgumentOutOfRangeException(nameof(startPage));
+		}
+
+		string path = "/api/v1/posts";
+
+		return EnumeratePagesAsync(async page => WrapPosts(await GetJson<PostModel[]>(BuildPagedPath(path, page, query), cancellationToken)), startPage, cancellationToken);
+	}
+
+	/// <summary>Lazily walks every page of a creator's posts, yielding each post as it arrives.</summary>
+	/// <param name="service">Service the creator belongs to.</param>
+	/// <param name="creatorId">Creator id.</param>
+	/// <param name="startPage">Zero-based page index to start from.</param>
+	/// <param name="query">Optional search term.</param>
+	/// <param name="cancellationToken">Cancellation token.</param>
+	/// <remarks>
+	/// Enumeration stops when a page comes back shorter than <see cref="PageSize"/>, or when the API
+	/// rejects an offset past its cap with a 400. A 400 on the first page is a real error.
+	/// </remarks>
+	public IAsyncEnumerable<Post> EnumerateCreatorPostsAsync(Service service, string creatorId, int startPage = 0, string? query = null, CancellationToken cancellationToken = default)
+	{
+		if (startPage < 0)
+		{
+			throw new ArgumentOutOfRangeException(nameof(startPage));
+		}
+
+		string path = $"/api/v1/{service}/user/{creatorId}";
+
+		return EnumeratePagesAsync(async page => WrapPosts(await GetJson<PostModel[]>(BuildPagedPath(path, page, query), cancellationToken)), startPage, cancellationToken);
+	}
+
+	private static async IAsyncEnumerable<Post> EnumeratePagesAsync(
+		Func<int, Task<Post[]>> fetchPage,
+		int startPage,
+		[EnumeratorCancellation] CancellationToken cancellationToken)
+	{
+		for (int page = startPage; ; page++)
+		{
+			cancellationToken.ThrowIfCancellationRequested();
+
+			Post[] posts;
+
+			try
+			{
+				posts = await fetchPage(page);
+			}
+			catch (HttpRequestException e) when (e.StatusCode == HttpStatusCode.BadRequest && page > startPage)
+			{
+				// The API rejects offsets past its cap (~50k posts) instead of returning a short page,
+				// so treat that as the end of the feed. A 400 on the first page is a real error.
+				yield break;
+			}
+
+			foreach (Post post in posts)
+			{
+				yield return post;
+			}
+
+			if (posts.Length < PageSize)
+			{
+				yield break;
+			}
+		}
+	}
+
 	private static string BuildPagedPath(string path, int page, string? query)
 	{
 		string search = query is null ? "" : $"&q={Uri.EscapeDataString(query)}";
 
-		return $"{path}?o={page * 50}{search}";
+		return $"{path}?o={page * PageSize}{search}";
 	}
 
 	private Post[] WrapPosts(PostModel[] models)

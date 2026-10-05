@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -26,7 +27,7 @@ internal record PostModel
 
 	[JsonPropertyName("published")] public DateTime Published { get; init; }
 
-	[JsonPropertyName("edited")] public DateTime Edited { get; init; }
+	[JsonPropertyName("edited")] public DateTime? Edited { get; init; }
 
 	[JsonPropertyName("file")] public FileAttachmentModel? File { get; init; }
 
@@ -36,7 +37,7 @@ internal record PostModel
 
 	[JsonPropertyName("has_full")] public bool? HasFull { get; init; }
 
-	[JsonPropertyName("tags")] public string Tags { get; init; } = "";
+	[JsonPropertyName("tags")][JsonConverter(typeof(TagsConverter))] public string[] Tags { get; init; } = [];
 
 	[JsonPropertyName("origin")] public string? Origin { get; init; }
 

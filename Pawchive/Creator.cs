@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Pawchive.Models;
@@ -44,6 +45,12 @@ public class Creator
 	public async Task<Post[]> GetPostsAsync(int page = 0, string? query = null, CancellationToken cancellationToken = default)
 	{
 		return await _client.GetCreatorPostsAsync(_model.Service, _model.Id, page, query, cancellationToken);
+	}
+
+	/// <summary>Lazily walks every page of this creator's posts.</summary>
+	public IAsyncEnumerable<Post> EnumeratePostsAsync(int startPage = 0, string? query = null, CancellationToken cancellationToken = default)
+	{
+		return _client.EnumerateCreatorPostsAsync(_model.Service, _model.Id, startPage, query, cancellationToken);
 	}
 
 	public async Task<Announcement[]> GetAnnouncementsAsync(CancellationToken cancellationToken = default)

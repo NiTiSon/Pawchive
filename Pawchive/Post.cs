@@ -33,7 +33,9 @@ public class Post
 
 	public System.DateTime Published => _model.Published;
 
-	public System.DateTime Edited => _model.Edited;
+	public System.DateTime? Edited => _model.Edited;
+
+	public string[] Tags => _model.Tags ?? [];
 
 	public FileAttachment? File => _model.File is null ? null : new FileAttachment(_model.File);
 

@@ -292,9 +292,221 @@ public sealed class PawchiveClientEndpointTests
 		await Assert.That(creators[0].Followers).IsEqualTo(2319);
 	}
 
-	private static PawchiveClient MakeClient(RecordingHandler handler)
+	private const int PageSize = 50;
+
+	[Test]
+	public async Task EnumeratePostsAsync_StopsAfterShortPage()
+	{
+		SequenceHandler handler = new(PostsPage(3));
+		PawchiveClient client = MakeClient(handler);
+
+		List<Post> posts = await CollectAsync(client.EnumeratePostsAsync());
+
+		await Assert.That(posts).Count().IsEqualTo(3);
+		await Assert.That(handler.Requests).Count().IsEqualTo(1);
+	}
+
+	[Test]
+	public async Task EnumeratePostsAsync_KeepsPagingUntilShortPage()
+	{
+		SequenceHandler handler = new(PostsPage(PageSize), PostsPage(PageSize), PostsPage(2));
+		PawchiveClient client = MakeClient(handler);
+
+		List<Post> posts = await CollectAsync(client.EnumeratePostsAsync());
+
+		await Assert.That(posts).Count().IsEqualTo((PageSize * 2) + 2);
+		await Assert.That(handler.Requests).Count().IsEqualTo(3);
+		await Assert.That(handler.Requests[0].Query).Contains("o=0");
+		await Assert.That(handler.Requests[1].Query).Contains($"o={PageSize}");
+		await Assert.That(handler.Requests[2].Query).Contains($"o={PageSize * 2}");
+	}
+
+	[Test]
+	public async Task EnumeratePostsAsync_StopsOnEmptyPage()
+	{
+		SequenceHandler handler = new();
+		PawchiveClient client = MakeClient(handler);
+
+		List<Post> posts = await CollectAsync(client.EnumeratePostsAsync());
+
+		await Assert.That(posts).IsEmpty();
+		await Assert.That(handler.Requests).Count().IsEqualTo(1);
+	}
+
+	[Test]
+	public async Task EnumeratePostsAsync_StartsFromGivenPage()
+	{
+		SequenceHandler handler = new(PostsPage(1));
+		PawchiveClient client = MakeClient(handler);
+
+		await CollectAsync(client.EnumeratePostsAsync(3, "hello"));
+
+		await Assert.That(handler.Requests[0].Query).Contains("o=150");
+		await Assert.That(handler.Requests[0].Query).Contains("q=hello");
+	}
+
+	[Test]
+	public async Task EnumeratePostsAsync_ThrowsWhenCancelled()
+	{
+		SequenceHandler handler = new(PostsPage(PageSize), PostsPage(PageSize));
+		PawchiveClient client = MakeClient(handler);
+		using CancellationTokenSource cts = new();
+
+		List<Post> posts = new();
+
+		await Assert.ThrowsAsync<OperationCanceledException>(async () =>
+		{
+			await foreach (Post post in client.EnumeratePostsAsync(cancellationToken: cts.Token))
+			{
+				posts.Add(post);
+
+				if (posts.Count == PageSize)
+				{
+					await cts.CancelAsync();
+				}
+			}
+		});
+
+		// The page already in flight is still yielded before the token is observed.
+		await Assert.That(posts).Count().IsEqualTo(PageSize);
+		await Assert.That(handler.Requests).Count().IsEqualTo(1);
+	}
+
+	[Test]
+	public async Task EnumerateCreatorPostsAsync_HitsCreatorPathAndPaginates()
+	{
+		SequenceHandler handler = new(PostsPage(PageSize), PostsPage(4));
+		PawchiveClient client = MakeClient(handler);
+
+		List<Post> posts = await CollectAsync(client.EnumerateCreatorPostsAsync(Service.Patreon, "u1"));
+
+		await Assert.That(posts).Count().IsEqualTo(PageSize + 4);
+		await Assert.That(handler.Requests[0].AbsolutePath).IsEqualTo("/api/v1/patreon/user/u1");
+	}
+
+	[Test]
+	public async Task EnumeratePostsAsync_StopsWhenApiRejectsOffsetPastCap()
+	{
+		// The live API 400s past ~50k posts rather than returning a short page.
+		SequenceHandler handler = new SequenceHandler(PostsPage(PageSize))
+			.WithStatus(HttpStatusCode.OK, HttpStatusCode.BadRequest);
+		PawchiveClient client = MakeClient(handler);
+
+		List<Post> posts = await CollectAsync(client.EnumeratePostsAsync());
+
+		await Assert.That(posts).Count().IsEqualTo(PageSize);
+		await Assert.That(handler.Requests).Count().IsEqualTo(2);
+	}
+
+	[Test]
+	public async Task EnumeratePostsAsync_ThrowsWhenFirstPageIsRejected()
+	{
+		// A 400 on the opening page is a genuine error, not the end of the feed.
+		SequenceHandler handler = new SequenceHandler("{}").WithStatus(HttpStatusCode.BadRequest);
+		PawchiveClient client = MakeClient(handler);
+
+		await Assert.ThrowsAsync<HttpRequestException>(async () => await CollectAsync(client.EnumeratePostsAsync()));
+
+		await Assert.That(handler.Requests).Count().IsEqualTo(1);
+	}
+
+	[Test]
+	public async Task EnumerateCreatorPostsAsync_DeserializesNullEditedAndTags()
+	{
+		// The live API returns edited/tags as JSON null for most creator posts.
+		string page =
+			"""
+			[
+				{ "id": "a", "user": "u1", "service": "patreon", "title": "A", "embed": {}, "added": "2026-01-01T00:00:00", "published": "2026-01-01T00:00:00", "edited": null, "tags": null, "file": null, "attachments": [] },
+				{ "id": "b", "user": "u1", "service": "patreon", "title": "B", "embed": {}, "added": "2026-01-01T00:00:00", "published": "2026-01-01T00:00:00", "edited": "2026-01-02T03:04:05", "tags": "x", "file": null, "attachments": [] }
+			]
+			""";
+		PawchiveClient client = MakeClient(new RecordingHandler(page));
+
+		Post[] posts = await client.GetCreatorPostsAsync(Service.Patreon, "u1");
+
+		await Assert.That(posts).Count().IsEqualTo(2);
+		await Assert.That(posts[0].Edited).IsNull();
+		await Assert.That(posts[1].Edited).IsEqualTo(new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc));
+		await Assert.That(posts[0].Tags).IsEmpty();
+	}
+
+	[Test]
+	[Arguments("null", "")]
+	[Arguments("[\"tekken\"]", "tekken")]
+	[Arguments("\"{\\\"Bloodborne Eternal Beast\\\"}\"", "Bloodborne Eternal Beast")]
+	[Arguments("\"{Note,US}\"", "Note|US")]
+	[Arguments("\"{Bloodborne Eternal Beast}\"", "Bloodborne Eternal Beast")]
+	public async Task PostTags_AcceptsEveryShapeTheApiSends(string tagsJson, string expected)
+	{
+		string page =
+			$$"""
+			[ { "id": "a", "user": "u1", "service": "patreon", "title": "A", "embed": {}, "added": "2026-01-01T00:00:00", "published": "2026-01-01T00:00:00", "edited": null, "tags": {{tagsJson}}, "file": null, "attachments": [] } ]
+			""";
+		PawchiveClient client = MakeClient(new RecordingHandler(page));
+
+		Post[] posts = await client.GetCreatorPostsAsync(Service.Patreon, "u1");
+
+		string actual = string.Join("|", posts[0].Tags);
+		await Assert.That(actual).IsEqualTo(expected);
+	}
+
+	private static async Task<List<Post>> CollectAsync(IAsyncEnumerable<Post> source)
+	{
+		List<Post> posts = new();
+
+		await foreach (Post post in source)
+		{
+			posts.Add(post);
+		}
+
+		return posts;
+	}
+
+	private static string PostsPage(int count)
+	{
+		return "[" + string.Join(",", Enumerable.Range(0, count).Select(i =>
+			$$"""{"id":"p{{i}}","user":"u1","service":"patreon","title":"T{{i}}","embed":{},"shared_file":false,"added":"2026-01-01T00:00:00","published":"2026-01-01T00:00:00","edited":"2026-01-01T00:00:00","file":null,"attachments":[]}""")) + "]";
+	}
+
+	private static PawchiveClient MakeClient(HttpMessageHandler handler)
 	{
 		return new PawchiveClient(new HttpClient(handler) { BaseAddress = new Uri("https://pawchive.pw") });
+	}
+
+	/// <summary>Serves a canned body per request, then empty pages, so paging can be observed.</summary>
+	private sealed class SequenceHandler : HttpMessageHandler
+	{
+		private readonly Queue<string> _bodies;
+		private Queue<HttpStatusCode> _statuses;
+
+		public List<Uri> Requests { get; } = new();
+
+		public SequenceHandler(params string[] bodies)
+		{
+			_bodies = new Queue<string>(bodies);
+			_statuses = new Queue<HttpStatusCode>();
+		}
+
+		/// <summary>Statuses for the first N responses; responses past that default to 200.</summary>
+		public SequenceHandler WithStatus(params HttpStatusCode[] statuses)
+		{
+			_statuses = new Queue<HttpStatusCode>(statuses);
+
+			return this;
+		}
+
+		protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+		{
+			Requests.Add(request.RequestUri!);
+
+			HttpResponseMessage response = new(_statuses.Count > 0 ? _statuses.Dequeue() : HttpStatusCode.OK)
+			{
+				Content = new StringContent(_bodies.Count > 0 ? _bodies.Dequeue() : "[]", System.Text.Encoding.UTF8, "application/json")
+			};
+
+			return Task.FromResult(response);
+		}
 	}
 
 	private sealed class RecordingHandler : HttpMessageHandler
