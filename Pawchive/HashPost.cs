@@ -27,4 +27,10 @@ public sealed class HashPost
 	public DateTime Published => _model.Published;
 
 	public FileAttachment? File => _model.File is null ? null : new FileAttachment(_model.File);
+
+	/// <summary>Attachments attached to this post. Empty when it has none.</summary>
+	public FileAttachment[] GetAttachments()
+	{
+		return FileAttachment.Wrap(_model.Attachments);
+	}
 }

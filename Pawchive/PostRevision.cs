@@ -36,19 +36,6 @@ public sealed class PostRevision
 
 	public FileAttachment[] GetAttachments()
 	{
-		FileAttachmentModel[] models = _model.Attachments;
-
-		if (models.Length == 0)
-		{
-			return [];
-		}
-
-		FileAttachment[] result = new FileAttachment[models.Length];
-		for (int i = 0; i < models.Length; i++)
-		{
-			result[i] = new FileAttachment(models[i]);
-		}
-
-		return result;
+		return FileAttachment.Wrap(_model.Attachments);
 	}
 }

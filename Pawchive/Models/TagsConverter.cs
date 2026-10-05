@@ -1,5 +1,5 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
+using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -14,8 +14,6 @@ namespace Pawchive.Models;
 /// </summary>
 internal sealed class TagsConverter : JsonConverter<string[]>
 {
-	[RequiresUnreferencedCode("Calls System.Text.Json.JsonSerializer.Deserialize<TValue>(ref Utf8JsonReader, JsonSerializerOptions)")]
-	[RequiresDynamicCode("Calls System.Text.Json.JsonSerializer.Deserialize<TValue>(ref Utf8JsonReader, JsonSerializerOptions)")]
 	public override string[] Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
 	{
 		switch (reader.TokenType)
@@ -24,7 +22,16 @@ internal sealed class TagsConverter : JsonConverter<string[]>
 				return [];
 
 			case JsonTokenType.StartArray:
-				return JsonSerializer.Deserialize<string[]>(ref reader, options) ?? [];
+				{
+					List<string> tags = new();
+
+					while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
+					{
+						tags.Add(reader.GetString() ?? "");
+					}
+
+					return [.. tags];
+				}
 
 			case JsonTokenType.String:
 				return SplitBraceList(reader.GetString());

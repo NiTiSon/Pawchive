@@ -39,6 +39,12 @@ public class Post
 
 	public FileAttachment? File => _model.File is null ? null : new FileAttachment(_model.File);
 
+	/// <summary>Attachments attached to this post. Empty when it has none.</summary>
+	public FileAttachment[] GetAttachments()
+	{
+		return FileAttachment.Wrap(_model.Attachments);
+	}
+
 	public Task<Post?> GetNextPostAsync(CancellationToken cancellationToken = default)
 	{
 		if (string.IsNullOrWhiteSpace(_model.Next))

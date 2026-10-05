@@ -451,6 +451,52 @@ public sealed class PawchiveClientEndpointTests
 		await Assert.That(actual).IsEqualTo(expected);
 	}
 
+	[Test]
+	public async Task PostAttachments_ExposesNamePathAndNode()
+	{
+		string page =
+			"""
+			[ { "id": "a", "user": "u1", "service": "patreon", "title": "A", "embed": {}, "added": "2026-01-01T00:00:00", "published": "2026-01-01T00:00:00", "edited": null, "tags": null,
+			  "file": { "name": "main.epub", "path": "/aa/bb/main.epub" },
+			  "attachments": [
+				{ "name": "one.epub", "path": "/cc/dd/one.epub", "node": 2 },
+				{ "name": "two.epub", "path": "/ee/ff/two.epub" }
+			  ] } ]
+			""";
+		PawchiveClient client = MakeClient(new RecordingHandler(page));
+
+		Post post = (await client.GetCreatorPostsAsync(Service.Patreon, "u1"))[0];
+
+		FileAttachment[] attachments = post.GetAttachments();
+
+		await Assert.That(attachments).Count().IsEqualTo(2);
+		await Assert.That(attachments[0].Name).IsEqualTo("one.epub");
+		await Assert.That(attachments[0].Path).IsEqualTo("/cc/dd/one.epub");
+		await Assert.That(attachments[0].Node).IsEqualTo(2);
+		await Assert.That(attachments[0].Url).IsEqualTo("https://file.pawchive.pw/data/cc/dd/one.epub");
+
+		// node is absent here, so it must surface as null rather than throw.
+		await Assert.That(attachments[1].Node).IsNull();
+
+		await Assert.That(post.File!.Name).IsEqualTo("main.epub");
+	}
+
+	[Test]
+	[Arguments("[]")]
+	[Arguments("null")]
+	public async Task PostAttachments_AreEmptyWhenAbsentOrEmpty(string attachmentsJson)
+	{
+		string page =
+			$$"""
+			[ { "id": "a", "user": "u1", "service": "patreon", "title": "A", "embed": {}, "added": "2026-01-01T00:00:00", "published": "2026-01-01T00:00:00", "edited": null, "tags": null, "file": null, "attachments": {{attachmentsJson}} } ]
+			""";
+		PawchiveClient client = MakeClient(new RecordingHandler(page));
+
+		Post post = (await client.GetCreatorPostsAsync(Service.Patreon, "u1"))[0];
+
+		await Assert.That(post.GetAttachments()).IsEmpty();
+	}
+
 	private static async Task<List<Post>> CollectAsync(IAsyncEnumerable<Post> source)
 	{
 		List<Post> posts = new();
