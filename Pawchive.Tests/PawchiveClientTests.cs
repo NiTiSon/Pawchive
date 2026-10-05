@@ -1,13 +1,15 @@
 using Pawchive.Tests;
 
 // This probably illegal to run on GitHub servers
-[assembly: ContinuousIntegrationSkip]
 [assembly: Timeout(timeoutInMilliseconds: 1000 * 15)]
 [assembly: Retry(times: 3)]
 
 namespace Pawchive.Tests;
 
+// These hit the live API, so they are skipped when running on CI.
+[ContinuousIntegrationSkip]
 public sealed class PawchiveClientTests
+
 {
 	[Test]
 	public async Task GetVersion()

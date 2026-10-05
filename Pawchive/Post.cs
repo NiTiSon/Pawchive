@@ -1,3 +1,4 @@
+using System.Threading;
 using System.Threading.Tasks;
 using Pawchive.Models;
 
@@ -18,23 +19,71 @@ public class Post
 
 	public string Title => _model.Title;
 
-	public Task<Post?> GetNextPostAsync()
+	public Service Service => _model.Service;
+
+	public string CreatorId => _model.User;
+
+	public string? Content => _model.Content;
+
+	public string? Substring => _model.Substring;
+
+	public bool SharedFile => _model.SharedFile;
+
+	public System.DateTime Added => _model.Added;
+
+	public System.DateTime Published => _model.Published;
+
+	public System.DateTime Edited => _model.Edited;
+
+	public FileAttachment? File => _model.File is null ? null : new FileAttachment(_model.File);
+
+	public Task<Post?> GetNextPostAsync(CancellationToken cancellationToken = default)
 	{
 		if (string.IsNullOrWhiteSpace(_model.Next))
 		{
 			return Task.FromResult<Post?>(null);
 		}
 
-		return _client.GetPostByIdAsync(_model.Service, _model.User, _model.Next);
+		return _client.GetPostByIdAsync(_model.Service, _model.User, _model.Next, cancellationToken);
 	}
 
-	public Task<Post?> GetPreviousPostAsync()
+	public Task<Post?> GetPreviousPostAsync(CancellationToken cancellationToken = default)
 	{
 		if (string.IsNullOrWhiteSpace(_model.Prev))
 		{
 			return Task.FromResult<Post?>(null);
 		}
 
-		return _client.GetPostByIdAsync(_model.Service, _model.User, _model.Prev);
+		return _client.GetPostByIdAsync(_model.Service, _model.User, _model.Prev, cancellationToken);
+	}
+
+	public Task<PostRevision[]> GetRevisionsAsync(CancellationToken cancellationToken = default)
+	{
+		return _client.GetPostRevisionsAsync(_model.Service, _model.User, _model.Id, cancellationToken);
+	}
+
+	public Task<Comment[]> GetCommentsAsync(CancellationToken cancellationToken = default)
+	{
+		return _client.GetPostCommentsAsync(_model.Service, _model.User, _model.Id, cancellationToken);
+	}
+
+	public Task FavoriteAsync(CancellationToken cancellationToken = default)
+	{
+		return _client.AddFavoritePostAsync(_model.Service, _model.User, _model.Id, cancellationToken);
+	}
+
+	public Task UnfavoriteAsync(CancellationToken cancellationToken = default)
+	{
+		return _client.RemoveFavoritePostAsync(_model.Service, _model.User, _model.Id, cancellationToken);
+	}
+
+	public Task FlagAsync(CancellationToken cancellationToken = default)
+	{
+		return _client.FlagPostAsync(_model.Service, _model.User, _model.Id, cancellationToken);
+	}
+
+	public Task<bool> IsFlaggedAsync(CancellationToken cancellationToken = default)
+	{
+		return _client.CheckPostFlagAsync(_model.Service, _model.User, _model.Id, cancellationToken);
 	}
 }

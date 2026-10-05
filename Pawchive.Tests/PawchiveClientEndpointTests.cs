@@ -1,0 +1,336 @@
+using System;
+using System.Globalization;
+using System.Net;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace Pawchive.Tests;
+
+/// <summary>
+/// Offline tests for the request shape and response parsing. Unlike <see cref="PawchiveClientTests"/>
+/// these never touch the network, so they run everywhere including CI.
+/// </summary>
+public sealed class PawchiveClientEndpointTests
+{
+	[Test]
+	[Arguments("a & b", "a%20%26%20b")]
+	[Arguments("plain", "plain")]
+	public async Task SearchPosts_UrlEncodesQuery(string query, string encoded)
+	{
+		RecordingHandler handler = new("[]");
+		PawchiveClient client = MakeClient(handler);
+
+		await client.SearchPosts(query);
+
+		await Assert.That(handler.LastRequestUri!.Query).Contains($"q={encoded}");
+	}
+
+	[Test]
+	public async Task GetCreatorPostsAsync_HitsUserRootWithoutPostsSegment()
+	{
+		RecordingHandler handler = new("[]");
+		PawchiveClient client = MakeClient(handler);
+
+		await client.GetCreatorPostsAsync(Service.Patreon, "user1", 2);
+
+		await Assert.That(handler.LastRequestUri!.AbsolutePath).IsEqualTo("/api/v1/patreon/user/user1");
+		await Assert.That(handler.LastRequestUri.Query).Contains("o=100");
+	}
+
+	[Test]
+	public async Task GetFavoritesAsync_SendsSessionCookieAndParses()
+	{
+		RecordingHandler handler = new("""
+			[
+				{ "faved_seq": 1, "id": "c1", "indexed": "1700000000", "last_imported": "", "name": "Fav", "service": "patreon", "updated": "1700000000" },
+				{ "faved_seq": 2, "id": "p1", "user": "u1", "title": "A post", "indexed": "", "last_imported": "", "name": "", "service": "fanbox", "updated": "" }
+			]
+			""");
+		PawchiveClient client = MakeClient(handler);
+		client.Auth("abc123");
+
+		Favorite[] favorites = await client.GetFavoritesAsync("artist");
+
+		await Assert.That(handler.CookieHeader).IsEqualTo("session=abc123");
+		await Assert.That(favorites).Count().IsEqualTo(2);
+		await Assert.That(favorites[0].Sequence).IsEqualTo(1);
+		await Assert.That(favorites[0].Name).IsEqualTo("Fav");
+		await Assert.That(favorites[0].Service).IsEqualTo(Service.Patreon);
+		await Assert.That(favorites[1].Title).IsEqualTo("A post");
+		await Assert.That(favorites[0].Indexed).IsEqualTo(new DateTime(2023, 11, 14, 22, 13, 20, DateTimeKind.Utc));
+		await Assert.That(favorites[0].LastImported).IsNull();
+	}
+
+	[Test]
+	[Arguments("POST", "/api/v1/favorites/post/patreon/u1/p1")]
+	[Arguments("DELETE", "/api/v1/favorites/post/patreon/u1/p1")]
+	public async Task FavoritePost_SendsVerbToPath(string method, string path)
+	{
+		RecordingHandler handler = new("{}");
+		PawchiveClient client = MakeClient(handler);
+
+		if (method == "POST")
+		{
+			await client.AddFavoritePostAsync(Service.Patreon, "u1", "p1");
+		}
+		else
+		{
+			await client.RemoveFavoritePostAsync(Service.Patreon, "u1", "p1");
+		}
+
+		await Assert.That(handler.LastRequest!.Method.Method).IsEqualTo(method);
+		await Assert.That(handler.LastRequestUri!.AbsolutePath).IsEqualTo(path);
+	}
+
+	[Test]
+	[Arguments("POST", "/api/v1/favorites/creator/fanbox/c1")]
+	[Arguments("DELETE", "/api/v1/favorites/creator/fanbox/c1")]
+	public async Task FavoriteCreator_SendsVerbToPath(string method, string path)
+	{
+		RecordingHandler handler = new("{}");
+		PawchiveClient client = MakeClient(handler);
+
+		if (method == "POST")
+		{
+			await client.AddFavoriteCreatorAsync(Service.PixivFanbox, "c1");
+		}
+		else
+		{
+			await client.RemoveFavoriteCreatorAsync(Service.PixivFanbox, "c1");
+		}
+
+		await Assert.That(handler.LastRequest!.Method.Method).IsEqualTo(method);
+		await Assert.That(handler.LastRequestUri!.AbsolutePath).IsEqualTo(path);
+	}
+
+	[Test]
+	public async Task FlagPost_SendsPostToFlagEndpoint()
+	{
+		RecordingHandler handler = new("{}");
+		PawchiveClient client = MakeClient(handler);
+
+		await client.FlagPostAsync(Service.Patreon, "u1", "p1");
+
+		await Assert.That(handler.LastRequest!.Method.Method).IsEqualTo("POST");
+		await Assert.That(handler.LastRequestUri!.AbsolutePath).IsEqualTo("/api/v1/patreon/user/u1/post/p1/flag");
+	}
+
+	[Test]
+	[Arguments(HttpStatusCode.OK, true)]
+	[Arguments(HttpStatusCode.NotFound, false)]
+	public async Task CheckPostFlagAsync_MapsStatusToBool(HttpStatusCode status, bool expected)
+	{
+		RecordingHandler handler = new("{}", status);
+		PawchiveClient client = MakeClient(handler);
+
+		bool flagged = await client.CheckPostFlagAsync(Service.Patreon, "u1", "p1");
+
+		await Assert.That(flagged).IsEqualTo(expected);
+	}
+
+	[Test]
+	public async Task GetPostCommentsAsync_ParsesNestedRevisions()
+	{
+		RecordingHandler handler = new("""
+			[
+				{
+					"id": "c1",
+					"parent_id": null,
+					"commenter": "someone",
+					"content": "first",
+					"published": "2026-01-01T00:00:00",
+					"revisions": [ { "id": 1, "content": "edited", "added": "2026-01-02T00:00:00" } ]
+				}
+			]
+			""");
+		PawchiveClient client = MakeClient(handler);
+
+		Comment[] comments = await client.GetPostCommentsAsync(Service.Patreon, "u1", "p1");
+
+		await Assert.That(comments).Count().IsEqualTo(1);
+		await Assert.That(comments[0].Commenter).IsEqualTo("someone");
+		await Assert.That(comments[0].ParentId).IsNull();
+		await Assert.That(comments[0].GetRevisions()).Count().IsEqualTo(1);
+		await Assert.That(comments[0].GetRevisions()[0].Content).IsEqualTo("edited");
+	}
+
+	[Test]
+	public async Task GetPostRevisionsAsync_ParsesRevisionId()
+	{
+		RecordingHandler handler = new("""
+			[
+				{
+					"revision_id": 7,
+					"id": "p1",
+					"user": "u1",
+					"service": "patreon",
+					"title": "Old title",
+					"content": "old body",
+					"embed": {},
+					"shared_file": false,
+					"added": "2026-01-01T00:00:00",
+					"published": "2026-01-01T00:00:00",
+					"edited": "2026-01-02T00:00:00",
+					"file": null,
+					"attachments": []
+				}
+			]
+			""");
+		PawchiveClient client = MakeClient(handler);
+
+		PostRevision[] revisions = await client.GetPostRevisionsAsync(Service.Patreon, "u1", "p1");
+
+		await Assert.That(revisions).Count().IsEqualTo(1);
+		await Assert.That(revisions[0].RevisionId).IsEqualTo(7);
+		await Assert.That(revisions[0].Title).IsEqualTo("Old title");
+		await Assert.That(revisions[0].CreatorId).IsEqualTo("u1");
+	}
+
+	[Test]
+	public async Task SearchFileByHashAsync_ParsesMatches()
+	{
+		RecordingHandler handler = new("""
+			{
+				"id": 1,
+				"hash": "aabbcc",
+				"mtime": "",
+				"ctime": "",
+				"mime": "image/png",
+				"ext": "png",
+				"added": "2026-01-01T00:00:00",
+				"size": 1024,
+				"ihash": null,
+				"posts": [
+					{
+						"file_id": 1,
+						"id": "p1",
+						"user": "u1",
+						"service": "patreon",
+						"title": "Hash match",
+						"substring": "test",
+						"published": "2026-01-01T00:00:00",
+						"file": { "name": "img.png", "path": "/ab/cd" },
+						"attachments": []
+					}
+				],
+				"discord_posts": [
+					{
+						"file_id": 2,
+						"id": "d1",
+						"server": "srv",
+						"channel": "chan",
+						"substring": "hi",
+						"published": "2026-01-01T00:00:00",
+						"embeds": [],
+						"mentions": [],
+						"attachments": []
+					}
+				]
+			}
+			""");
+		PawchiveClient client = MakeClient(handler);
+
+		FileHashResult result = await client.SearchFileByHashAsync("aabbcc");
+
+		await Assert.That(result.Hash).IsEqualTo("aabbcc");
+		await Assert.That(result.Mime).IsEqualTo("image/png");
+		await Assert.That(result.Size).IsEqualTo(1024);
+		await Assert.That(result.IHash).IsNull();
+		await Assert.That(result.GetPosts()).Count().IsEqualTo(1);
+		await Assert.That(result.GetPosts()[0].Title).IsEqualTo("Hash match");
+		await Assert.That(result.GetPosts()[0].File!.Url).IsEqualTo("https://file.pawchive.pw/data/ab/cd");
+		await Assert.That(result.GetDiscordPosts()).Count().IsEqualTo(1);
+		await Assert.That(result.GetDiscordPosts()[0].Server).IsEqualTo("srv");
+	}
+
+	[Test]
+	public async Task GetVersionAsync_TrimsWhitespace()
+	{
+		RecordingHandler handler = new("  1.2.3\n", HttpStatusCode.OK, "text/plain");
+		PawchiveClient client = MakeClient(handler);
+
+		string version = await client.GetVersionAsync();
+
+		await Assert.That(version).IsEqualTo("1.2.3");
+	}
+
+	[Test]
+	// /creators sends unix seconds as a number.
+	[Arguments("""{"id":"c1","name":"A","service":"patreon","indexed":1785423600,"updated":1791154800,"favorited":2319,"ever_imported":true}""", "2026-07-30T15:00:00Z", "2026-10-04T23:00:00Z")]
+	// /profile and /links send ISO-8601 strings instead.
+	[Arguments("""{"id":"4969886","name":"B","service":"patreon","indexed":"2026-06-10T21:00:00","updated":"2026-10-05T17:00:00","public_id":"B","relation_id":null,"ever_imported":true}""", "2026-06-10T21:00:00Z", "2026-10-05T17:00:00Z")]
+	// Numeric strings are tolerated too.
+	[Arguments("""{"id":"c3","name":"C","service":"patreon","indexed":"1781125200","updated":"1791219600","public_id":"C"}""", "2026-06-10T21:00:00Z", "2026-10-05T17:00:00Z")]
+	public async Task CreatorTimestamps_AcceptNumberIsoAndNumericString(string body, string expectedIndexed, string expectedUpdated)
+	{
+		RecordingHandler handler = new(body);
+		PawchiveClient client = MakeClient(handler);
+
+		Creator? creator = await client.GetCreatorByIdAsync(Service.Patreon, "c1");
+
+		await Assert.That(handler.LastRequestUri!.AbsolutePath).IsEqualTo("/api/v1/patreon/user/c1/profile");
+		await Assert.That(creator).IsNotNull();
+		await Assert.That(creator!.Indexed).IsEqualTo(DateTime.Parse(expectedIndexed, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal));
+		await Assert.That(creator.Updated).IsEqualTo(DateTime.Parse(expectedUpdated, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal));
+		await Assert.That(creator.Indexed.Kind).IsEqualTo(DateTimeKind.Utc);
+	}
+
+	[Test]
+	public async Task GetCreatorsAsync_ParsesUnixSecondTimestamps()
+	{
+		RecordingHandler handler = new("""
+			[
+				{ "id": "c1", "name": "A", "service": "patreon", "indexed": 1785423600, "updated": 1791154800, "favorited": 2319, "ever_imported": true }
+			]
+			""");
+		PawchiveClient client = MakeClient(handler);
+
+		Creator[] creators = await client.GetCreatorsAsync();
+
+		await Assert.That(creators).Count().IsEqualTo(1);
+		await Assert.That(creators[0].Id).IsEqualTo("c1");
+		await Assert.That(creators[0].Followers).IsEqualTo(2319);
+	}
+
+	private static PawchiveClient MakeClient(RecordingHandler handler)
+	{
+		return new PawchiveClient(new HttpClient(handler) { BaseAddress = new Uri("https://pawchive.pw") });
+	}
+
+	private sealed class RecordingHandler : HttpMessageHandler
+	{
+		private readonly string _body;
+		private readonly HttpStatusCode _status;
+		private readonly string _contentType;
+
+		public HttpRequestMessage? LastRequest { get; private set; }
+
+		public Uri? LastRequestUri => LastRequest?.RequestUri;
+
+		public string? CookieHeader => LastRequest?.Headers.TryGetValues("Cookie", out IEnumerable<string>? values) is true
+			? string.Join("; ", values)
+			: null;
+
+		public RecordingHandler(string body, HttpStatusCode status = HttpStatusCode.OK, string contentType = "application/json")
+		{
+			_body = body;
+			_status = status;
+			_contentType = contentType;
+		}
+
+		protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+		{
+			LastRequest = request;
+
+			HttpResponseMessage response = new(_status)
+			{
+				Content = new StringContent(_body)
+				{
+					Headers = { ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(_contentType) }
+				}
+			};
+
+			return Task.FromResult(response);
+		}
+	}
+}

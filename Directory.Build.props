@@ -3,7 +3,6 @@
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
         <Authors>NiTiSon and contributors</Authors>
         <Description>Pawchive API wrapper.</Description>
-        <TargetFrameworks>net10.0;net6.0</TargetFrameworks>
         <LangVersion>14.0</LangVersion>
 
         <ImplicitUsings>disable</ImplicitUsings>

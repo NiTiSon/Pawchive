@@ -17,17 +17,17 @@ internal class FancardModel
 	[JsonPropertyName("hash")]
 	public string Hash { get; init; } = "";
 
-	[JsonPropertyName("added")]
+	[JsonPropertyName("mtime")]
 	public DateTime MTime { get; init; }
 
-	[JsonPropertyName("added")]
+	[JsonPropertyName("ctime")]
 	public DateTime CTime { get; init; }
 
-	[JsonPropertyName("mine")]
-	public string Mime { get; init; }
+	[JsonPropertyName("mime")]
+	public string Mime { get; init; } = "";
 
 	[JsonPropertyName("ext")]
-	public string Ext { get; init; }
+	public string Ext { get; init; } = "";
 
 	[JsonPropertyName("added")]
 	public DateTime Added { get; init; }
@@ -36,5 +36,5 @@ internal class FancardModel
 	public long Size { get; init; }
 
 	[JsonPropertyName("ihash")]
-	public string IHash { get; init; }
+	public string? IHash { get; init; }
 }

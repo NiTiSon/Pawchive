@@ -3,3 +3,5 @@ obj/
 /packages/
 .idea/
 .vs/
+TestResults/
+*.DotSettings.user

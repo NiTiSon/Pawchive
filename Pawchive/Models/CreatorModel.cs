@@ -14,11 +14,14 @@ internal record CreatorModel
 	[JsonPropertyName("service")]
 	public string Service { get; init; } = "";
 
+	// /creators sends unix seconds, /profile and /links send ISO-8601. See FlexibleDateTimeConverter.
 	[JsonPropertyName("indexed")]
-	public long Indexed { get; init; }
+	[JsonConverter(typeof(FlexibleDateTimeConverter))]
+	public DateTime Indexed { get; init; }
 
 	[JsonPropertyName("updated")]
-	public long Updated { get; init; }
+	[JsonConverter(typeof(FlexibleDateTimeConverter))]
+	public DateTime Updated { get; init; }
 
 	[JsonPropertyName("favorited")]
 	public int Favorited { get; init; }
@@ -28,4 +31,8 @@ internal record CreatorModel
 
 	[JsonPropertyName("public_id")]
 	public string? PublicId { get; init; }
+
+	/// <summary>Only present on /profile and /links, where the caller has a session.</summary>
+	[JsonPropertyName("relation_id")]
+	public string? RelationId { get; init; }
 }

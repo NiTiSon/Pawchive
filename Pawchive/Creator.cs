@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Pawchive.Models;
@@ -20,6 +21,14 @@ public class Creator
 	public Service Service => _model.Service;
 	public int Followers => _model.Favorited;
 
+	/// <summary>When the creator was first indexed.</summary>
+	public DateTime Indexed => _model.Indexed;
+
+	/// <summary>Last update.</summary>
+	public DateTime Updated => _model.Updated;
+
+	public string? PublicId => _model.PublicId;
+
 	public async Task<Post?> GetPostByIdAsync(string id, CancellationToken cancellationToken = default)
 	{
 		PostModel? model = await _client.GetJson<PostModel?>($"/api/v1/{_model.Service}/user/{_model.Id}/post/{id}", cancellationToken);
@@ -32,7 +41,12 @@ public class Creator
 		return new Post(_client, model);
 	}
 
-	public async Task<Announcement[]> GetAnnouncements(CancellationToken cancellationToken = default)
+	public async Task<Post[]> GetPostsAsync(int page = 0, string? query = null, CancellationToken cancellationToken = default)
+	{
+		return await _client.GetCreatorPostsAsync(_model.Service, _model.Id, page, query, cancellationToken);
+	}
+
+	public async Task<Announcement[]> GetAnnouncementsAsync(CancellationToken cancellationToken = default)
 	{
 		AnnouncementModel[] models = await _client.GetJson<AnnouncementModel[]>($"/api/v1/{_model.Service}/user/{_model.Id}/announcements", cancellationToken);
 
@@ -50,7 +64,7 @@ public class Creator
 		return result;
 	}
 
-	public async Task<Fancard[]> GetFancards(CancellationToken cancellationToken = default)
+	public async Task<Fancard[]> GetFancardsAsync(CancellationToken cancellationToken = default)
 	{
 		FancardModel[] models = await _client.GetJson<FancardModel[]>($"/api/v1/{_model.Service}/user/{_model.Id}/fancards", cancellationToken);
 
@@ -68,7 +82,7 @@ public class Creator
 		return result;
 	}
 
-	public async Task<Creator[]> GetLinkedAccounts(CancellationToken cancellationToken = default)
+	public async Task<Creator[]> GetLinkedAccountsAsync(CancellationToken cancellationToken = default)
 	{
 		CreatorModel[] models = await _client.GetJson<CreatorModel[]>($"/api/v1/{_model.Service}/user/{_model.Id}/links", cancellationToken);
 
@@ -84,5 +98,15 @@ public class Creator
 		}
 
 		return result;
+	}
+
+	public async Task FollowAsync(CancellationToken cancellationToken = default)
+	{
+		await _client.AddFavoriteCreatorAsync(_model.Service, _model.Id, cancellationToken);
+	}
+
+	public async Task UnfollowAsync(CancellationToken cancellationToken = default)
+	{
+		await _client.RemoveFavoriteCreatorAsync(_model.Service, _model.Id, cancellationToken);
 	}
 }
