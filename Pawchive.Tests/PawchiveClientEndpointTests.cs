@@ -471,7 +471,7 @@ public sealed class PawchiveClientEndpointTests
 
 		await Assert.That(attachments).Count().IsEqualTo(2);
 		await Assert.That(attachments[0].Name).IsEqualTo("one.epub");
-		await Assert.That(attachments[0].Path).IsEqualTo("/cc/dd/one.epub");
+		await Assert.That(attachments[0].RelativePath).IsEqualTo("/cc/dd/one.epub");
 		await Assert.That(attachments[0].Node).IsEqualTo(2);
 		await Assert.That(attachments[0].Url).IsEqualTo("https://file.pawchive.pw/data/cc/dd/one.epub");
 

@@ -14,7 +14,8 @@ public sealed class FileAttachment
 
 	public string Name => _model.Name;
 
-	public string Path => _model.Path;
+	public string RelativePath => _model.Path;
+	public string Path => "https://file.pawchive.pw" + RelativePath;
 
 	/// <summary>Node id the API assigned to this attachment, or null when it did not send one.</summary>
 	public int? Node => _model.Node;
