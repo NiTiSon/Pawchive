@@ -7,9 +7,9 @@
 
         <ImplicitUsings>disable</ImplicitUsings>
         <Nullable>enable</Nullable>
-        
+
         <PublishRepositoryUrl>true</PublishRepositoryUrl>
-        <VersionPrefix>1.0</VersionPrefix> <!-- library version -->
+        <VersionPrefix>1.1</VersionPrefix> <!-- library version -->
         <VersionMeta>pawchive.1.0</VersionMeta> <!-- site api version -->
         <Version>$(VersionPrefix)+$(VersionMeta)</Version>
 

@@ -497,6 +497,94 @@ public sealed class PawchiveClientEndpointTests
 		await Assert.That(post.GetAttachments()).IsEmpty();
 	}
 
+	[Test]
+	public async Task DeferredAttachment_WithoutPath_FallsBackToTempUrl()
+	{
+		// This shape has no "path" key at all, which used to throw NullReferenceException in Url.
+		string page =
+			"""
+			[ { "id": "a", "user": "u1", "service": "patreon", "title": "A", "embed": {}, "added": "2026-01-01T00:00:00", "published": "2026-01-01T00:00:00", "edited": null, "tags": null, "file": null,
+			  "attachments": [ { "name": "Lulu.zip", "deferred": true, "temp_url": "https://t1.pawchive.pw/f/abc/Lulu.zip", "temp_expires": "2026-10-20T03:00:00+03:00" } ] } ]
+			""";
+		PawchiveClient client = MakeClient(new RecordingHandler(page));
+
+		Post post = (await client.GetCreatorPostsAsync(Service.Patreon, "u1"))[0];
+		FileAttachment attachment = post.GetAttachments()[0];
+
+		await Assert.That(attachment.Deferred).IsTrue();
+		await Assert.That(attachment.RelativePath).IsEmpty();
+		await Assert.That(attachment.Url).IsEqualTo("https://t1.pawchive.pw/f/abc/Lulu.zip");
+		await Assert.That(attachment.TempExpires).IsNotNull();
+	}
+
+	[Test]
+	public async Task DeferredAttachment_PrefersTempDownloadUrlOverStreamUrl()
+	{
+		string page =
+			"""
+			[ { "id": "a", "user": "u1", "service": "patreon", "title": "A", "embed": {}, "added": "2026-01-01T00:00:00", "published": "2026-01-01T00:00:00", "edited": null, "tags": null, "file": null,
+			  "attachments": [ { "name": "v.mp4", "deferred": true, "temp_url": "https://t1.pawchive.pw/v/1/master.m3u8", "temp_download_url": "https://t1.pawchive.pw/d/1/v.mp4" } ] } ]
+			""";
+		PawchiveClient client = MakeClient(new RecordingHandler(page));
+
+		Post post = (await client.GetCreatorPostsAsync(Service.Patreon, "u1"))[0];
+		FileAttachment attachment = post.GetAttachments()[0];
+
+		await Assert.That(attachment.Url).IsEqualTo("https://t1.pawchive.pw/d/1/v.mp4");
+		await Assert.That(attachment.TempUrl).IsEqualTo("https://t1.pawchive.pw/v/1/master.m3u8");
+	}
+
+	[Test]
+	public async Task Attachment_WithoutName_IsEmptyRatherThanNull()
+	{
+		string page =
+			"""
+			[ { "id": "a", "user": "u1", "service": "patreon", "title": "A", "embed": {}, "added": "2026-01-01T00:00:00", "published": "2026-01-01T00:00:00", "edited": null, "tags": null, "file": null,
+			  "attachments": [ { "path": "/d5/bd/abc.jpg" } ] } ]
+			""";
+		PawchiveClient client = MakeClient(new RecordingHandler(page));
+
+		FileAttachment attachment = (await client.GetCreatorPostsAsync(Service.Patreon, "u1"))[0].GetAttachments()[0];
+
+		await Assert.That(attachment.Name).IsEmpty();
+		await Assert.That(attachment.Url).IsEqualTo("https://file.pawchive.pw/data/d5/bd/abc.jpg");
+		await Assert.That(attachment.PreviewOnly).IsFalse();
+	}
+
+	[Test]
+	public async Task Attachment_ExposesPreviewOnlyFlag()
+	{
+		string page =
+			"""
+			[ { "id": "a", "user": "u1", "service": "patreon", "title": "A", "embed": {}, "added": "2026-01-01T00:00:00", "published": "2026-01-01T00:00:00", "edited": null, "tags": null, "file": null,
+			  "attachments": [ { "name": "p.jpg", "path": "/7d/92/p.jpg", "preview_only": true } ] } ]
+			""";
+		PawchiveClient client = MakeClient(new RecordingHandler(page));
+
+		FileAttachment attachment = (await client.GetCreatorPostsAsync(Service.Patreon, "u1"))[0].GetAttachments()[0];
+
+		await Assert.That(attachment.PreviewOnly).IsTrue();
+		await Assert.That(attachment.Deferred).IsFalse();
+	}
+
+	[Test]
+	public async Task Attachment_WithNeitherPathNorTempUrl_HasEmptyUrl()
+	{
+		// Neither fallback is available, so Url must be empty instead of throwing.
+		string page =
+			"""
+			[ { "id": "a", "user": "u1", "service": "patreon", "title": "A", "embed": {}, "added": "2026-01-01T00:00:00", "published": "2026-01-01T00:00:00", "edited": null, "tags": null, "file": null,
+			  "attachments": [ { "name": "Gaussian Splatting Modular Toolkit.zip", "deferred": true } ] } ]
+			""";
+		PawchiveClient client = MakeClient(new RecordingHandler(page));
+
+		FileAttachment attachment = (await client.GetCreatorPostsAsync(Service.Patreon, "u1"))[0].GetAttachments()[0];
+
+		await Assert.That(attachment.Url).IsEmpty();
+		await Assert.That(attachment.Deferred).IsTrue();
+		await Assert.That(attachment.TempExpires).IsNull();
+	}
+
 	private static async Task<List<Post>> CollectAsync(IAsyncEnumerable<Post> source)
 	{
 		List<Post> posts = new();
